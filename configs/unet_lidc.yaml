@@ -1,0 +1,24 @@
+project_name: "EG-GM-PUNet"
+experiment_name: "v0_unet_baseline_milesial_lidc"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos"
+save_dir: "E:/workspace/EG-GM-PUNet/result/v0_unet_baseline"
+
+seed: 2026
+
+image_size: 128
+n_channels: 1
+n_classes: 1
+bilinear: false
+
+epochs: 100
+batch_size: 8
+num_workers: 0
+
+learning_rate: 0.0001
+weight_decay: 0.00001
+
+bce_weight: 0.5
+dice_weight: 0.5
+
+device: "cuda"

@@ -1,0 +1,20 @@
+raw_root: "E:/workspace/LIDC-IDRI_data/CT-manifest-1760698817279/LIDC-IDRI"
+output_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128"
+
+seed: 2026
+train_ratio: 0.7
+val_ratio: 0.15
+test_ratio: 0.15
+
+min_annotators: 4
+max_annotators: 4
+
+pad_xy: 20
+pad_z: 2
+
+output_size: 128
+
+window_min: -1000
+window_max: 400
+
+max_scans: 5

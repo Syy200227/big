@@ -1,0 +1,175 @@
+project_name: "EG-GM-PUNet-v3-A1b"
+experiment_name: "eg_gm_punet_v3_a1b_centered_residual_bridge_quick"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a1b_centered_residual_bridge_quick"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# =============================================================================
+# 初始化：必须从 A.1a epoch 9 best GED4 checkpoint 出发。
+# 该 checkpoint 的既有参数全部加载；A.1b 新 bridge 为 zero-init。
+# =============================================================================
+initialization:
+  mode: "a1a_best_ged"
+  checkpoint: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a1a_residual_aligned_scale_balanced_k5/best_val_ged4_eg_gm_punet_v3.pth"
+  expected_source_epoch: 9
+
+model:
+  in_channels: 1
+  num_classes: 2
+
+  num_components:
+    coarse: 5
+    middle: 5
+    fine: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels: [32, 64, 128, 192, 192, 192, 192]
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  head_hidden_dim: 128
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: -6.0
+  max_log_sigma: 2.0
+  mixture_temperature: 1.0
+
+  posterior_residual:
+    delta_logit_scale: 1.0
+    delta_mu_scale: 1.0
+    delta_log_sigma_scale: 0.5
+
+  scale_balance:
+    ema_decay: 0.95
+    gamma: 0.5
+    alpha_min: 0.25
+    alpha_max: 2.5
+
+  # ---------------------------------------------------------------------------
+  # Stage A.1b 唯一新增模块。
+  # 只给 middle/fine 增加 centered stochastic residual bridge；coarse 不再增强。
+  # zero-init 保证初始预测严格退化到 A.1a。
+  # ---------------------------------------------------------------------------
+  scale_residual_bridge:
+    enabled_scales: [middle, fine]
+    hidden_ratio: 0.5
+    residual_scale: 1.0
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  feedback:
+    enabled: true
+    demand_scale: "fine"
+    start_epoch: 21
+    ramp_epochs: 20
+    beta_anchor_coarse: 1.20
+    beta_anchor_middle: 1.20
+    beta_anchor_fine: 1.20
+    deficit_strength_coarse: 2.00
+    deficit_strength_middle: 2.00
+    deficit_strength_fine: 2.00
+    surplus_strength_coarse: 0.50
+    surplus_strength_middle: 0.50
+    surplus_strength_fine: 0.50
+    beta_min: 1.00
+    beta_max: 1.50
+    demand_ema_decay: 0.99
+    capacity_ema_decay: 0.99
+    min_std: 0.01
+    z_clip: 2.0
+    relative_temperature: 1.0
+
+training:
+  epochs: 12
+  quick_screen_epochs: 12
+  batch_size: 4
+  num_workers: 0
+
+  # A.1b quick-screen 中原 A.1a backbone 全部冻结；该值只保留接口兼容。
+  transferred_backbone_warmup_epochs: 0
+
+  # latent backbone 已由 A.1a 验证，本轮不再改变 scale allocation。
+  scale_balance_enabled: false
+  scale_balance_active_epochs: 0
+
+  base_beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+
+  # --quick-screen / --smoke-test 会再次强制关闭 feedback。
+  feedback_enabled: false
+
+  # A.1b 只验证 probability decoder bridge；evidence 只前向，不反传。
+  evidence_weight: 0.0
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  # probability optimizer 此时只包含 bridge 参数。
+  # bridge 是 zero-init 新层，因此允许明显高于 backbone 的 LR。
+  probabilistic_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00002
+    - 0.00001
+
+  # evidence params frozen；保留该字段只为训练器接口兼容。
+  evidence_learning_rate_values:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.0
+  save_every_epochs: 4
+
+validation:
+  rater_index: 0
+  quick_screen_batches: 32
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts: [1, 4, 8, 16]
+  active_basis_threshold: 0.02
+  save_all_case_artifacts: true
+  save_generated_probabilities: false
+  artifact_float_dtype: "float16"
+
+# A.1a epoch9 在相同 quick validation panel 上的基线。
+# A.1b 自动 screening 会与这些数值比较，而不是与 150-epoch Stage2b 混比。
+screening_baseline:
+  source: "A1a epoch9 best GED4, 128-slice quick validation panel, 4 prior samples"
+  ged4: 0.20166647247970104
+  cross_dice: 0.833613
+  best_dice: 0.867273
+  sample_diversity: 0.110797

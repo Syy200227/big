@@ -1,0 +1,136 @@
+project_name: EG-GM-PUNet-v3-A2
+experiment_name: component431_strict_ms_gmm_deh_quick
+data_root: E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full
+save_dir: E:\workspace\EG-GM-PUNet\result\component_ablation_4_3_1_strict\ms_gmm_deh\quick
+seed: 2026
+validation_seed: 12026
+device: cuda
+resume: null
+initialization:
+  mode: a1a_best_ged
+  checkpoint: E:\workspace\EG-GM-PUNet\result\component_ablation_4_3_1_strict\common_init\common_v2b_seed2026_a2_architecture_epoch000.pth
+  expected_source_epoch: 0
+model:
+  in_channels: 1
+  num_classes: 2
+  num_components:
+    coarse: 5
+    middle: 5
+    fine: 5
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+  num_channels:
+  - 32
+  - 64
+  - 128
+  - 192
+  - 192
+  - 192
+  - 192
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+  num_convs_per_block: 3
+  head_hidden_dim: 128
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: -6.0
+  max_log_sigma: 2.0
+  mixture_temperature: 1.0
+  posterior_residual:
+    delta_logit_scale: 1.0
+    delta_mu_scale: 1.0
+    delta_log_sigma_scale: 0.5
+  scale_balance:
+    ema_decay: 0.95
+    gamma: 0.5
+    alpha_min: 0.25
+    alpha_max: 2.5
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+  feedback:
+    enabled: false
+    demand_scale: fine
+    start_epoch: 11
+    ramp_epochs: 10
+    beta_anchor_coarse: 1.2
+    beta_anchor_middle: 1.2
+    beta_anchor_fine: 1.2
+    deficit_strength_coarse: 2.0
+    deficit_strength_middle: 2.0
+    deficit_strength_fine: 2.0
+    surplus_strength_coarse: 0.5
+    surplus_strength_middle: 0.5
+    surplus_strength_fine: 0.5
+    beta_min: 1.0
+    beta_max: 1.5
+    demand_ema_decay: 0.99
+    capacity_ema_decay: 0.99
+    min_std: 0.01
+    z_clip: 2.0
+    relative_temperature: 1.0
+training:
+  epochs: 3
+  batch_size: 4
+  num_workers: 0
+  context_encoder_warmup_epochs: 3
+  base_beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+  feedback_enabled: false
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 1
+  probabilistic_learning_rate_values:
+  - 1.0e-05
+  - 5.0e-06
+  - 2.0e-06
+  - 1.0e-06
+  evidence_learning_rate_values:
+  - 2.0e-05
+  - 1.0e-05
+  - 5.0e-06
+  - 2.0e-06
+  learning_rate_boundary_fractions:
+  - 0.333333
+  - 0.666667
+  - 1.0
+  regularization_weight: 1.0e-05
+  gradient_clip_norm: 5.0
+  save_every_epochs: 5
+  direct_diversity_matching:
+    enabled: true
+    start_epoch: 1
+    ramp_epochs: 5
+    every_n_steps: 1
+    num_prior_samples: 2
+    huber_beta: 0.05
+    deadband: 0.01
+    weight: 0.015
+validation:
+  rater_index: 0
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+evaluation:
+  final_prior_samples: 16
+  sample_counts:
+  - 1
+  - 4
+  - 8
+  - 16
+  active_basis_threshold: 0.02
+  save_all_case_artifacts: true
+  save_generated_probabilities: false
+  artifact_float_dtype: float16

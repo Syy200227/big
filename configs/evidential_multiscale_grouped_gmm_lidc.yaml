@@ -1,0 +1,108 @@
+project_name: "EG-GM-PUNet"
+experiment_name: "v3_evidential_multiscale_grouped_gmm_k5_lidc_full"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/v3_evidential_multiscale_grouped_gmm_k5_full"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+initialization:
+  probabilistic_checkpoint: "E:/workspace/EG-GM-PUNet/result/v2b_multiscale_grouped_gmm_k5/best_val_ged4_multiscale_grouped_gmm.pth"
+  strict: true
+
+model:
+  in_channels: 1
+  num_classes: 2
+  num_components: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels:
+    - 32
+    - 64
+    - 128
+    - 192
+    - 192
+    - 192
+    - 192
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: null
+  max_log_sigma: null
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+training:
+  epochs: 150
+  batch_size: 4
+  num_workers: 0
+
+  freeze_probabilistic_epochs: 5
+
+  beta_categorical: 1.0
+  beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+  gumbel_temperature: 1.0
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  probabilistic_learning_rate_values:
+    - 0.00001
+    - 0.000005
+    - 0.000001
+    - 0.0000005
+
+  evidence_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  save_every_epochs: 10
+
+validation:
+  rater_index: 0
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts:
+    - 1
+    - 4
+    - 8
+    - 16
+  save_examples: 5

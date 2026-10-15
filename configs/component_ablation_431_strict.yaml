@@ -1,0 +1,109 @@
+# ============================================================================
+# EG-GM-PUNet 4.3.1 STRICT MAIN COMPONENT ABLATION
+# ============================================================================
+# Three formal variants start from ONE IDENTICAL probability-only V2-B transfer
+# checkpoint and ONE IDENTICAL seeded full-architecture initialization state.
+# No A1a/A1final/A2/full checkpoint is used as a formal initialization.
+#
+# A1: MS-GMM
+# A2: MS-GMM + MS-DEH
+# A3: MS-GMM + MS-DEH + EG-ALC
+#
+# DMC is kept ON and identical in all three rows.  It is NOT EG-ALC and should
+# be tested separately later as Full w/o DMC vs Full + DMC.
+# ============================================================================
+
+project_root: "E:/workspace/EG-GM-PUNet"
+python_exe: "E:/anaconda/envs/torch221/python.exe"
+
+seed: 2026
+validation_seed: 12026
+evaluation_seed: 22026
+
+# Current final LIDC data used by the paper.
+expected_data_root_suffix: "processed_lidc_128_allpos_full"
+
+# Prefer a full-data probability-only checkpoint if it really exists.
+# Otherwise use the historically validated V2-B checkpoint as COMMON PRETRAINING.
+v2b_checkpoint_candidates:
+  - "result/v2b_multiscale_grouped_gmm_k5_full/best_val_ged4_multiscale_grouped_gmm.pth"
+  - "result/v2b_multiscale_grouped_gmm_k5/best_val_ged4_multiscale_grouped_gmm.pth"
+
+# Exact A2 code/config are used only as the FINAL ARCHITECTURE/TRAINING TEMPLATE.
+# Their A1a initialization is explicitly overwritten by a newly prepared common
+# V2-B-compatible epoch-0 checkpoint.
+a2_trainer_candidates:
+  - "train/train_eg_gm_punet_v3_a2_direct_diversity_match.py"
+  - "train/train_eg_gm_punet_v3_a2.py"
+
+a2_config_candidates:
+  - "configs/eg_gm_punet_v3_a2_direct_diversity_match_lidc.yaml"
+  - "configs/eg_gm_punet_v3_a2_lidc.yaml"
+
+evaluator_candidates:
+  - "evaluate/evaluate_eg_gm_punet_v3_a2.py"
+
+output_root: "E:/workspace/EG-GM-PUNet/result/component_ablation_4_3_1_strict"
+generated_config_dir: "E:/workspace/EG-GM-PUNet/configs/generated_component_ablation_431_strict"
+common_init_checkpoint: "E:/workspace/EG-GM-PUNet/result/component_ablation_4_3_1_strict/common_init/common_v2b_seed2026_a2_architecture_epoch000.pth"
+
+switches:
+  preflight: true
+  prepare_common_init: true
+
+  run_ms_gmm: true
+  run_ms_gmm_deh: true
+  run_full_egalc: true
+
+  run_smoke: true
+  run_quick: true
+  run_formal: true
+  run_test: true
+
+  # A failing quick screen only skips that variant's formal run.
+  continue_after_variant_failure: true
+
+# --------------------------------------------------------------------------
+# Formal ablation budget
+# --------------------------------------------------------------------------
+# 50 epochs/variant is intentionally a CONTROLLED ABLATION budget, not the
+# 150-epoch main-model protocol.  It keeps all 3 rows equal and is designed to
+# finish overnight on the user's current hardware (~one 150-epoch run total).
+# If curves are still improving at epoch 50, extend ALL THREE together later.
+formal:
+  epochs: 50
+
+  # Preserve the same A2 optimizer/LR/DMC settings from the template unless a
+  # value is explicitly listed here.
+  checkpoint_metric: "val_prior_ged4"
+
+  # Formal EG-ALC schedule.  Keep a neutral evidence warm-up before feedback.
+  feedback_start_epoch: 11
+  feedback_ramp_epochs: 10
+
+# Smoke: A2 trainer's --smoke-test is used (2 train + 2 val batches).
+smoke:
+  force_egalc_start_epoch: 1
+  force_egalc_ramp_epochs: 1
+
+# Quick: independent 3-epoch run from the SAME common epoch-0 init.
+# Never resumed into formal.
+quick:
+  epochs: 3
+  force_egalc_start_epoch: 1
+  force_egalc_ramp_epochs: 1
+  min_val_prior_cross_dice: 0.20
+  max_val_prior_ged2: 2.0
+
+# Unified prior-only evaluation.
+evaluation:
+  split: "test"
+  num_samples: 16
+  sample_counts: [1, 4, 8, 16]
+
+# Strict scientific guards.
+guardrails:
+  require_dmc_enabled: true
+  expected_dmc_weight: 0.015
+  require_same_common_init_sha256: true
+  prohibit_init_path_tokens: ["a1a", "a1final", "a2", "eg_gm_punet_v3_a2"]

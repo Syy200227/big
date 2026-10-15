@@ -1,0 +1,175 @@
+project_name: "EG-GM-PUNet-v3-A1a"
+experiment_name: "eg_gm_punet_v3_a1a_residual_aligned_scale_balanced_k5"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a1a_residual_aligned_scale_balanced_k5"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# =============================================================================
+# 初始化
+# =============================================================================
+# A.1a residual posterior heads 与 V2-B 不兼容，因此仍只迁移：
+#   image_encoder
+#   prior.encoder
+#   posterior.encoder
+#   decoder
+#   segmentation_head
+# 新 conditional GMM heads / MS-DEH / EG-ALC 均重新初始化。
+initialization:
+  mode: "compatible_v2b"
+  checkpoint: "E:/workspace/EG-GM-PUNet/result/v2b_multiscale_grouped_gmm_k5/best_val_ged4_multiscale_grouped_gmm.pth"
+
+model:
+  in_channels: 1
+  num_classes: 2
+
+  # K 现在只表示每个尺度 latent density 的 basis capacity；
+  # 不表示 annotator 数，也不表示真实 segmentation mode 数。
+  num_components:
+    coarse: 5
+    middle: 5
+    fine: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels: [32, 64, 128, 192, 192, 192, 192]
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  head_hidden_dim: 128
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: -6.0
+  max_log_sigma: 2.0
+
+  # 仅作为 GMM 内部 differentiable sampling 数值温度，固定，不接受 evidence feedback。
+  mixture_temperature: 1.0
+
+  # Stage A.1a：posterior 只预测相对 prior 的有界残差。
+  posterior_residual:
+    delta_logit_scale: 1.0
+    delta_mu_scale: 1.0
+    delta_log_sigma_scale: 0.5
+
+  # 只用于建立健康的 scale utilization；不是 EG-ALC。
+  scale_balance:
+    ema_decay: 0.95
+    gamma: 0.5
+    alpha_min: 0.25
+    alpha_max: 2.5
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  feedback:
+    enabled: true
+    demand_scale: "fine"
+
+    start_epoch: 21
+    ramp_epochs: 20
+
+    # 本阶段沿用 Stage0.5b/Stage2b 已验证的同一个 U^amb，
+    # 仅让三个尺度拥有不同 C_g，以隔离 MS-GMM 结构变化。
+    beta_anchor_coarse: 1.20
+    beta_anchor_middle: 1.20
+    beta_anchor_fine: 1.20
+
+    deficit_strength_coarse: 2.00
+    deficit_strength_middle: 2.00
+    deficit_strength_fine: 2.00
+
+    surplus_strength_coarse: 0.50
+    surplus_strength_middle: 0.50
+    surplus_strength_fine: 0.50
+
+    beta_min: 1.00
+    beta_max: 1.50
+
+    demand_ema_decay: 0.99
+    capacity_ema_decay: 0.99
+    min_std: 0.01
+    z_clip: 2.0
+    relative_temperature: 1.0
+
+training:
+  epochs: 150
+  # 第一次只跑 15 epoch；若 PASS，直接 resume 到 40/150，不从头训练。
+  quick_screen_epochs: 15
+  batch_size: 4
+  num_workers: 0
+
+  # Epoch1-5：只冻结从 V2-B 迁移的 shared backbone，
+  # 新 conditional GMM heads + MS-DEH 仍训练。
+  transferred_backbone_warmup_epochs: 5
+
+  # Scale balance 仅在早期使用。quick-screen 15 epoch 全程 active；
+  # 后续续训到 40 时建议 active 到 epoch 20，然后 alpha 自动回到 1。
+  scale_balance_enabled: true
+  scale_balance_active_epochs: 20
+
+  base_beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+
+  feedback_enabled: true  # --quick-screen 时脚本自动关闭
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  probabilistic_learning_rate_values:
+    - 0.00001
+    - 0.000005
+    - 0.000001
+    - 0.0000005
+
+  evidence_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  save_every_epochs: 10
+
+validation:
+  rater_index: 0
+  # quick-screen 只使用固定前 32 batches = 128 个 val slices。
+  quick_screen_batches: 32
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts: [1, 4, 8, 16]
+  active_basis_threshold: 0.02
+
+  save_all_case_artifacts: true
+  save_generated_probabilities: false
+  artifact_float_dtype: "float16"

@@ -1,0 +1,182 @@
+
+project_name: "EG-GM-PUNet-v2"
+experiment_name: "eg_gm_punet_v2_conditional_vitality_k5_lidc_full"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v2_conditional_vitality_k5_full"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# 公平对照：仍从相同 V2-B probability checkpoint 开始。
+# 不从 Stage 2a checkpoint 继续训练。
+initialization:
+  mode: "probabilistic"
+  joint_checkpoint: "E:/workspace/EG-GM-PUNet/result/v3_evidential_multiscale_grouped_gmm_k5_full/best_val_joint_loss_v3_evidential.pth"
+  probabilistic_checkpoint: "E:/workspace/EG-GM-PUNet/result/v2b_multiscale_grouped_gmm_k5/best_val_ged4_multiscale_grouped_gmm.pth"
+  strict: true
+
+  probabilistic_feedback_start_epoch: 21
+  probabilistic_freeze_probabilistic_epochs: 5
+  joint_feedback_start_epoch: 1
+  joint_freeze_probabilistic_epochs: 2
+
+model:
+  in_channels: 1
+  num_classes: 2
+  num_components: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels: [32, 64, 128, 192, 192, 192, 192]
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: null
+  max_log_sigma: null
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  feedback:
+    enabled: true
+    start_epoch: 21
+    ramp_epochs: 20
+
+    # 与 Stage2a 完全相同。
+    demand_scale: "fine"
+
+    demand_ema_decay: 0.99
+    demand_min_std: 0.01
+    demand_z_clip: 2.0
+    demand_relative_temperature: 1.0
+
+    capacity_ema_decay: 0.99
+    capacity_min_std: 0.01
+    capacity_z_clip: 2.0
+    capacity_relative_temperature: 1.0
+
+    # Fidelity anchor.
+    categorical_beta_anchor: 1.20
+    group_beta_anchors:
+      coarse: 1.20
+      middle: 1.20
+      fine: 1.20
+    temperature_anchor: 0.90
+
+    # U > C：从 anchor 向 neutral 放松。
+    categorical_deficit_strength: 2.00
+    group_deficit_strengths:
+      coarse: 2.00
+      middle: 2.00
+      fine: 2.00
+    temperature_deficit_strength: 2.00
+
+    # C > U：适度增强 conservative bias。
+    categorical_surplus_strength: 0.50
+    group_surplus_strengths:
+      coarse: 0.50
+      middle: 0.50
+      fine: 0.50
+    temperature_surplus_strength: 0.50
+
+    # Stage2b 硬 neutral boundary；Stage3 保持不变。
+    beta_neutral_floor: 1.00
+    beta_max: 1.50
+    temperature_min: 0.75
+    temperature_neutral_ceiling: 1.00
+
+
+  # Stage 3 only: Conditional Component Vitality.
+  # 0.03 is slightly above the active diagnostic threshold 0.02.
+  # With K=5, the floor constrains at most 15% total mass and does NOT force uniformity.
+  vitality:
+    enabled: true
+    start_epoch: 21
+    ramp_epochs: 20
+    survival_floor: 0.03
+    active_threshold: 0.02
+    deficit_deadzone: 0.05
+    deficit_scale: 0.15
+    minimum_gate_mass: 0.05
+    loss_weight: 0.05
+    posterior_weight: 0.50
+    eps: 1.0e-8
+
+training:
+  epochs: 150
+  batch_size: 4
+  num_workers: 0
+  freeze_probabilistic_epochs: 5
+
+  beta_categorical: 1.0
+  beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+  gumbel_temperature: 1.0
+
+  feedback_enabled: true
+  categorical_feedback: true
+  group_feedback: true
+  temperature_feedback: true
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  probabilistic_learning_rate_values:
+    - 0.00001
+    - 0.000005
+    - 0.000001
+    - 0.0000005
+
+  evidence_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  save_every_epochs: 10
+
+validation:
+  rater_index: 0
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts: [1, 4, 8, 16]
+
+  # 延续 Stage2/3/4 固定保存规范。
+  save_all_case_artifacts: true
+  save_input_image: true
+  save_generated_probabilities: false
+  artifact_float_dtype: "float16"
+  active_component_threshold: 0.02

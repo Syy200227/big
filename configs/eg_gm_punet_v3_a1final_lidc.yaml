@@ -1,0 +1,201 @@
+
+project_name: "EG-GM-PUNet-v3-A1Final"
+experiment_name: "eg_gm_punet_v3_a1final_distribution_calibrated_k5"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a1final_distribution_calibrated_k5"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# =============================================================================
+# 初始化：直接继承 A.1a 已经通过机制筛选的 epoch9 best-GED checkpoint。
+# 新 middle/fine bridge 为 zero-output 初始化，初始预测不破坏 A.1a。
+# =============================================================================
+initialization:
+  mode: "a1a_best_ged"
+  checkpoint: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a1a_residual_aligned_scale_balanced_k5/best_val_ged4_eg_gm_punet_v3.pth"
+  expected_source_epoch: 9
+
+model:
+  in_channels: 1
+  num_classes: 2
+
+  num_components:
+    coarse: 5
+    middle: 5
+    fine: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels: [32, 64, 128, 192, 192, 192, 192]
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  head_hidden_dim: 128
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+
+  min_log_sigma: -6.0
+  max_log_sigma: 2.0
+  mixture_temperature: 1.0
+
+  posterior_residual:
+    delta_logit_scale: 1.0
+    delta_mu_scale: 1.0
+    delta_log_sigma_scale: 0.5
+
+  # 只在前 20 epoch 做 global latent-group stabilization。
+  scale_balance:
+    ema_decay: 0.95
+    gamma: 0.5
+    alpha_min: 0.25
+    alpha_max: 2.5
+
+  # A.1b 冻结试验失败的 bridge 不直接沿用其权重；
+  # 重新 zero-output 初始化，并在本轮端到端联合训练。
+  scale_residual_bridge:
+    enabled_scales: ["middle", "fine"]
+    hidden_ratio: 0.5
+    residual_scale: 0.5
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  feedback:
+    enabled: true
+    demand_scale: "fine"
+    start_epoch: 21
+    ramp_epochs: 20
+
+    beta_anchor_coarse: 1.20
+    beta_anchor_middle: 1.20
+    beta_anchor_fine: 1.20
+
+    deficit_strength_coarse: 2.00
+    deficit_strength_middle: 2.00
+    deficit_strength_fine: 2.00
+
+    surplus_strength_coarse: 0.50
+    surplus_strength_middle: 0.50
+    surplus_strength_fine: 0.50
+
+    beta_min: 1.00
+    beta_max: 1.50
+
+    demand_ema_decay: 0.99
+    capacity_ema_decay: 0.99
+    min_std: 0.01
+    z_clip: 2.0
+    relative_temperature: 1.0
+
+training:
+  epochs: 150
+  batch_size: 4
+  num_workers: 0
+
+  # 前5 epoch保护 context encoder；GMM / decoder / bridge 已开始联合训练。
+  context_encoder_warmup_epochs: 5
+
+  scale_balance_enabled: true
+  scale_balance_active_epochs: 20
+
+  base_beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+
+  feedback_enabled: true
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  # A.1a 已有较好初始化，因此主骨干继续用小 LR；
+  # 新 bridge 稍大 LR，但从 zero-output 开始。
+  probabilistic_learning_rate_values:
+    - 0.00001
+    - 0.000005
+    - 0.000001
+    - 0.0000005
+
+  bridge_learning_rate_values:
+    - 0.00005
+    - 0.00002
+    - 0.000005
+    - 0.000001
+
+  evidence_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  gradient_clip_norm: 5.0
+  save_every_epochs: 10
+
+  # ===========================================================================
+  # SSDC: Symmetric Set Distribution Calibration
+  # ===========================================================================
+  # 每2个训练step计算一次，控制 overnight 训练开销。
+  # 2个 prior samples 即可形成 pairwise spread，训练全过程随机重采样。
+  #
+  # 权重乘以 H*W 后加入原本“像素求和”的 ELBO，避免数值尺度过小。
+  # coverage + fidelity 对称设计：
+  #   coverage 防 under-dispersion；
+  #   fidelity 防重新 over-dispersion；
+  # spread 显式把幅度拉向真实 annotation set；
+  # mean consistency 稳住均值/consensus。
+  distribution_calibration:
+    enabled: true
+    start_epoch: 6
+    ramp_epochs: 15
+    every_n_steps: 2
+    num_prior_samples: 2
+
+    softmin_temperature: 0.05
+    spread_huber_beta: 0.05
+
+    coverage_weight: 0.010
+    fidelity_weight: 0.010
+    spread_weight: 0.006
+    mean_weight: 0.003
+
+validation:
+  rater_index: 0
+  # 正式150轮每个epoch使用完整812例 validation；
+  # prior samples=4 与此前 model-selection 保持一致。
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts: [1, 4, 8, 16]
+  active_basis_threshold: 0.02
+  save_all_case_artifacts: true
+  save_generated_probabilities: false
+  artifact_float_dtype: "float16"

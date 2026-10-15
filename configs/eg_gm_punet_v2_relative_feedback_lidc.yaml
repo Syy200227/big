@@ -1,0 +1,159 @@
+project_name: "EG-GM-PUNet-v2"
+experiment_name: "eg_gm_punet_v2_relative_feedback_k5_lidc_full"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v2_relative_feedback_k5_full"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# Keep exactly the same V2-B probability initialization used by the first
+# Full Feedback and No-Feedback experiments for a fair Stage-1 comparison.
+initialization:
+  mode: "probabilistic"
+  joint_checkpoint: "E:/workspace/EG-GM-PUNet/result/v3_evidential_multiscale_grouped_gmm_k5_full/best_val_joint_loss_v3_evidential.pth"
+  probabilistic_checkpoint: "E:/workspace/EG-GM-PUNet/result/v2b_multiscale_grouped_gmm_k5/best_val_ged4_multiscale_grouped_gmm.pth"
+  strict: true
+
+  joint_feedback_start_epoch: 1
+  joint_freeze_probabilistic_epochs: 2
+
+  # Formal Stage 1 schedule:
+  # epoch 1-20  : evidence warm-up, feedback OFF, EMA demand statistics update
+  # epoch 21-40 : relative feedback ramp 0 -> 1
+  # epoch 41+   : full relative feedback
+  probabilistic_feedback_start_epoch: 21
+  probabilistic_freeze_probabilistic_epochs: 5
+
+model:
+  in_channels: 1
+  num_classes: 2
+  num_components: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels:
+    - 32
+    - 64
+    - 128
+    - 192
+    - 192
+    - 192
+    - 192
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: null
+  max_log_sigma: null
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  feedback:
+    enabled: true
+
+    # The training entry overwrites start_epoch according to initialization.
+    start_epoch: 21
+    ramp_epochs: 20
+
+    # Stage 0.5b selected demand:
+    # prior -> fine scale -> foreground weighted -> expected data entropy.
+    demand_scale: "fine"
+
+    # Relative normalizer.
+    ema_decay: 0.99
+    min_std: 0.01
+    z_clip: 2.0
+    relative_temperature: 1.0
+
+    # Keep the same control targets and strengths as the first EG-ALC as much
+    # as possible; Stage 1 changes the demand definition/centering, not the
+    # set of controlled latent variables.
+    categorical_beta_strength: 1.00
+    group_beta_strengths:
+      coarse: 1.00
+      middle: 1.00
+      fine: 1.00
+    temperature_strength: 0.70
+
+    beta_ratio_min: 0.25
+    beta_ratio_max: 2.00
+    temperature_min: 0.50
+    temperature_max: 1.50
+
+training:
+  epochs: 150
+  batch_size: 4
+  num_workers: 0
+
+  freeze_probabilistic_epochs: 5
+
+  beta_categorical: 1.0
+  beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+  gumbel_temperature: 1.0
+
+  feedback_enabled: true
+  categorical_feedback: true
+  group_feedback: true
+  temperature_feedback: true
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  probabilistic_learning_rate_values:
+    - 0.00001
+    - 0.000005
+    - 0.000001
+    - 0.0000005
+
+  evidence_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  save_every_epochs: 10
+
+validation:
+  rater_index: 0
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts:
+    - 1
+    - 4
+    - 8
+    - 16
+  save_examples: 5

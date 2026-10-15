@@ -1,0 +1,190 @@
+
+project_name: "EG-GM-PUNet-v3-A2"
+experiment_name: "eg_gm_punet_v3_a2_direct_diversity_match_k5"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a2_direct_diversity_match_k5"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# =============================================================================
+# A.2 不重新从 V2-B 开始。
+# 直接使用已经通过机制筛选的 A.1a epoch9 best-GED checkpoint。
+# =============================================================================
+initialization:
+  mode: "a1a_best_ged"
+  checkpoint: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v3_a1a_residual_aligned_scale_balanced_k5/best_val_ged4_eg_gm_punet_v3.pth"
+  expected_source_epoch: 9
+
+model:
+  in_channels: 1
+  num_classes: 2
+
+  num_components:
+    coarse: 5
+    middle: 5
+    fine: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels: [32, 64, 128, 192, 192, 192, 192]
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  head_hidden_dim: 128
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: -6.0
+  max_log_sigma: 2.0
+  mixture_temperature: 1.0
+
+  posterior_residual:
+    delta_logit_scale: 1.0
+    delta_mu_scale: 1.0
+    delta_log_sigma_scale: 0.5
+
+  # 参数保留只是为了与 A.1a checkpoint 完全兼容；
+  # A.2 训练时 scale_balance_enabled=False。
+  scale_balance:
+    ema_decay: 0.95
+    gamma: 0.5
+    alpha_min: 0.25
+    alpha_max: 2.5
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  # A.2 局部 epoch 1~30。
+  # 前10 epoch 先让 DMC 建立正确 output spread；
+  # epoch11 开始逐渐恢复 bounded EG-ALC。
+  feedback:
+    enabled: true
+    demand_scale: "fine"
+    start_epoch: 11
+    ramp_epochs: 10
+
+    beta_anchor_coarse: 1.20
+    beta_anchor_middle: 1.20
+    beta_anchor_fine: 1.20
+
+    deficit_strength_coarse: 2.00
+    deficit_strength_middle: 2.00
+    deficit_strength_fine: 2.00
+
+    surplus_strength_coarse: 0.50
+    surplus_strength_middle: 0.50
+    surplus_strength_fine: 0.50
+
+    beta_min: 1.00
+    beta_max: 1.50
+
+    demand_ema_decay: 0.99
+    capacity_ema_decay: 0.99
+    min_std: 0.01
+    z_clip: 2.0
+    relative_temperature: 1.0
+
+training:
+  # 最多30 epoch，不再跑150。
+  epochs: 30
+  batch_size: 4
+  num_workers: 0
+
+  # A.1a 已有成熟 representation。
+  # 前3 epoch只保护 context encoder；
+  # GMM heads + decoder + segmentation head 从 epoch1 就能响应 DMC。
+  context_encoder_warmup_epochs: 3
+
+  base_beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+
+  feedback_enabled: true
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  # 不是从随机 evidence head 开始，因此直接使用完整 evidential objective。
+  evidential_annealing_epochs: 1
+
+  # 小步 finetune，避免破坏 A.1a fidelity。
+  probabilistic_learning_rate_values:
+    - 0.000010
+    - 0.000005
+    - 0.000002
+    - 0.000001
+
+  evidence_learning_rate_values:
+    - 0.000020
+    - 0.000010
+    - 0.000005
+    - 0.000002
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  gradient_clip_norm: 5.0
+  save_every_epochs: 5
+
+  # ===========================================================================
+  # DMC — Direct case-wise Diversity Matching Calibration
+  # ===========================================================================
+  direct_diversity_matching:
+    enabled: true
+    start_epoch: 1
+    ramp_epochs: 5
+
+    # 每一个 step 都给直接 distribution signal；
+    # 仅2个 prior samples，计算成本仍可控。
+    every_n_steps: 1
+    num_prior_samples: 2
+
+    # case-wise |D_pred - D_ann| 使用 Smooth-L1。
+    huber_beta: 0.05
+
+    # 允许 ±0.01 的小误差，不让模型围绕目标不断振荡。
+    deadband: 0.01
+
+    # loss 会乘 H*W 以匹配原 ELBO pixel-sum 量级。
+    # gap≈0.10 时 full-ramp DMC 约为二十多个 loss units，
+    # 足以纠正 under-dispersion，但仍明显小于 reconstruction 主项。
+    weight: 0.015
+
+validation:
+  rater_index: 0
+
+  # 每个 epoch 全量812例 validation。
+  # 固定 validation RNG，便于比较 30 个 epoch 的 GED/Div 趋势。
+  prior_samples_each_epoch: 4
+
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts: [1, 4, 8, 16]
+  active_basis_threshold: 0.02
+  save_all_case_artifacts: true
+  save_generated_probabilities: false
+  artifact_float_dtype: "float16"

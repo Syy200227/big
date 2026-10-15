@@ -1,0 +1,63 @@
+project_name: "EG-GM-PUNet"
+experiment_name: "v2_global_gmm_prob_unet_k5_lidc"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos"
+save_dir: "E:/workspace/EG-GM-PUNet/result/v2_global_gmm_prob_unet_k5"
+
+seed: 2026
+device: "cuda"
+resume: null
+
+model:
+  in_channels: 1
+  num_classes: 2
+  latent_dim: 6
+  num_components: 5
+
+  num_channels:
+    - 32
+    - 64
+    - 128
+    - 192
+    - 192
+    - 192
+    - 192
+
+  num_convs_per_block: 3
+  num_1x1_convs: 3
+  min_log_sigma: null
+  max_log_sigma: null
+
+training:
+  epochs: 100
+  batch_size: 4
+  num_workers: 0
+
+  beta: 1.0
+  gumbel_temperature: 1.0
+
+  initial_learning_rate: 0.0001
+  learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  save_every_epochs: 10
+
+validation:
+  rater_index: 0
+  prior_samples_each_epoch: 4
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts:
+    - 1
+    - 4
+    - 8
+    - 16

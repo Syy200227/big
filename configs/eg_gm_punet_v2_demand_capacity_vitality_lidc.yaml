@@ -1,0 +1,167 @@
+project_name: "EG-GM-PUNet-v2"
+experiment_name: "eg_gm_punet_v2_demand_capacity_vitality_k5_lidc_full"
+
+data_root: "E:/workspace/EG-GM-PUNet/dataset/processed_lidc_128_allpos_full"
+save_dir: "E:/workspace/EG-GM-PUNet/result/eg_gm_punet_v2_demand_capacity_vitality_k5_full"
+
+seed: 2026
+validation_seed: 12026
+device: "cuda"
+resume: null
+
+# 为了和第一版 Full/No-Feedback 公平比较，Stage 1-4 都从同一个 V2-B 概率模型初始化。
+# Evidence Head、EMA 统计量和 v2 controller 都从初始状态开始。
+initialization:
+  mode: "probabilistic"
+  probabilistic_checkpoint: "E:/workspace/EG-GM-PUNet/result/v2b_multiscale_grouped_gmm_k5/best_val_ged4_multiscale_grouped_gmm.pth"
+  strict: true
+
+model:
+  in_channels: 1
+  num_classes: 2
+  num_components: 5
+
+  latent_dims:
+    coarse: 2
+    middle: 2
+    fine: 2
+
+  num_channels:
+    - 32
+    - 64
+    - 128
+    - 192
+    - 192
+    - 192
+    - 192
+
+  group_feature_indices:
+    coarse: 6
+    middle: 3
+    fine: 0
+
+  group_decoder_indices:
+    coarse: 3
+    middle: 2
+    fine: 0
+
+  num_convs_per_block: 3
+  fusion_1x1_convs: 1
+  segmentation_head_1x1_convs: 3
+  min_log_sigma: null
+  max_log_sigma: null
+
+  evidence_projection_channels: 32
+  evidence_fusion_channels: 64
+
+  feedback_v2:
+    enabled: true
+    mode: "demand_capacity"
+
+    # 正式训练：1-20 epoch 让 evidence 和 EMA 统计先稳定；21-40 渐进引入反馈。
+    start_epoch: 21
+    ramp_epochs: 20
+
+    # Evidence uncertainty 组合权重，与第一版保持一致以控制变量。
+    vacuity_weight: 0.60
+    predictive_entropy_weight: 0.20
+    mutual_information_weight: 0.20
+
+    # Relative Evidence Normalization。
+    uncertainty_ema_decay: 0.99
+    uncertainty_min_std: 0.02
+    uncertainty_temperature: 1.0
+
+    # Continuous latent KL capacity 的运行归一化。
+    kl_ema_decay: 0.99
+    kl_min_std: 0.05
+    kl_temperature: 1.0
+
+    # 控制强度与第一版大体保持一致，避免一次改变多个因素。
+    categorical_beta_strength: 1.0
+    group_beta_strengths:
+      coarse: 1.0
+      middle: 1.0
+      fine: 1.0
+    temperature_strength: 0.70
+
+    beta_ratio_min: 0.25
+    beta_ratio_max: 2.0
+    temperature_min: 0.50
+    temperature_max: 1.50
+
+    # Stage 3 才开启。不是 uniform load balancing，只在 capacity deficit 病例中保护 component。
+    vitality:
+      enabled: true
+      loss_weight: 0.01
+      occupancy_floor: 0.03
+      start_epoch: 21
+      end_epoch: 80
+
+    # Stage 4 才开启。使用 4 位医生空间分歧约束 component-induced variance。
+    ambiguity_alignment:
+      enabled: false
+      loss_weight: 0.05
+      start_epoch: 21
+      roi_dilation_kernel: 9
+
+training:
+  epochs: 150
+  batch_size: 4
+  num_workers: 0
+
+  freeze_probabilistic_epochs: 5
+
+  beta_categorical: 1.0
+  beta_groups:
+    coarse: 1.0
+    middle: 1.0
+    fine: 1.0
+  gumbel_temperature: 1.0
+
+  feedback_enabled: true
+  categorical_feedback: true
+  group_feedback: true
+  temperature_feedback: true
+
+  evidence_weight: 0.1
+  evidence_dice_weight: 1.0
+  evidence_kl_weight: 1.0
+  evidence_calibration_weight: 1.0
+  evidence_auxiliary_scale_weight: 0.1
+  evidential_annealing_epochs: 20
+
+  probabilistic_learning_rate_values:
+    - 0.00001
+    - 0.000005
+    - 0.000001
+    - 0.0000005
+
+  evidence_learning_rate_values:
+    - 0.0001
+    - 0.00005
+    - 0.00001
+    - 0.0000005
+
+  learning_rate_boundary_fractions:
+    - 0.333333
+    - 0.666667
+    - 1.0
+
+  regularization_weight: 0.00001
+  save_every_epochs: 10
+
+validation:
+  rater_index: 0
+  prior_samples_each_epoch: 4
+  ece_bins: 15
+  ranking_bins: 200
+
+evaluation:
+  final_prior_samples: 16
+  sample_counts:
+    - 1
+    - 4
+    - 8
+    - 16
+  save_examples: 5
